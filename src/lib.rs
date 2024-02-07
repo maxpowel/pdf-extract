@@ -173,7 +173,7 @@ fn to_utf8(encoding: &[u16], s: &[u8]) -> String {
 
 fn maybe_deref<'a>(doc: &'a Document, o: &'a Object) -> &'a Object {
     match o {
-        &Object::Reference(r) => doc.get_object(r).expect("missing object reference"),
+        &Object::Reference(r) => doc.get_object(r).expect(&format!("missing object reference {:?}", r)),
         _ => o
     }
 }
@@ -897,6 +897,7 @@ fn get_unicode_map<'a>(doc: &'a Document, font: &'a Dictionary) -> Option<HashMa
 impl<'a> PdfCIDFont<'a> {
     fn new(doc: &'a Document, font: &'a Dictionary) -> PdfCIDFont<'a> {
         let base_name = get_name_string(doc, font, b"BaseFont");
+        println!("{:?}", font);
         let descendants = maybe_get_array(doc, font, b"DescendantFonts").expect("Descendant fonts required");
         let ciddict = maybe_deref(doc, &descendants[0]).as_dict().expect("should be CID dict");
         let encoding = maybe_get_obj(doc, font, b"Encoding").expect("Encoding required in type0 fonts");
@@ -2138,6 +2139,16 @@ pub fn extract_text_from_mem(buffer: &[u8]) -> Result<String, OutputError> {
     return Ok(s);
 }
 
+pub fn extract_text_from_page(doc: &Document, page_num: u32, page_id: ObjectId) -> Result<String, OutputError> {
+    let mut s = String::new();
+    {
+        let mut output = PlainTextOutput::new(&mut s);
+        output_page(doc, &mut output, page_num, page_id)?;
+    }
+    return Ok(s);
+}
+
+
 fn get_inherited<'a, T: FromObj<'a>>(doc: &'a Document, dict: &'a Dictionary, key: &[u8]) -> Option<T> {
     let o: Option<T> = get(doc, dict, key);
     if let Some(o) = o {
@@ -2180,4 +2191,26 @@ pub fn output_doc(doc: &Document, output: &mut dyn OutputDev) -> Result<(), Outp
         output.end_page()?;
     }
     Ok(())
+}
+
+/// Parse a given document and output it to `output`
+pub fn output_page(doc: &Document, output: &mut dyn OutputDev, page_num: u32, page_id: ObjectId) -> Result<(), OutputError> {
+    let mut p = Processor::new();
+    let page_dict = doc.get_object(page_id).unwrap().as_dict().unwrap();
+    let empty_resources = &Dictionary::new();
+    let resources = get_inherited(doc, page_dict, b"Resources").unwrap_or(empty_resources);
+    dlog!("resources {:?}", resources);
+
+    // pdfium searches up the page tree for MediaBoxes as needed
+    let media_box: Vec<f64> = get_inherited(doc, page_dict, b"MediaBox").expect("MediaBox");
+    let media_box = MediaBox { llx: media_box[0], lly: media_box[1], urx: media_box[2], ury: media_box[3] };
+
+    let art_box = get::<Option<Vec<f64>>>(&doc, page_dict, b"ArtBox")
+        .map(|x| (x[0], x[1], x[2], x[3]));
+
+    output.begin_page(page_num, &media_box, art_box)?;
+
+    p.process_stream(&doc, doc.get_page_content(page_id).unwrap(), resources,&media_box, output, page_num)?;
+
+    output.end_page()
 }
