@@ -897,7 +897,7 @@ fn get_unicode_map<'a>(doc: &'a Document, font: &'a Dictionary) -> Option<HashMa
 impl<'a> PdfCIDFont<'a> {
     fn new(doc: &'a Document, font: &'a Dictionary) -> PdfCIDFont<'a> {
         let base_name = get_name_string(doc, font, b"BaseFont");
-        println!("{:?}", font);
+        //println!("{:?}", font);
         let descendants = maybe_get_array(doc, font, b"DescendantFonts").expect("Descendant fonts required");
         let ciddict = maybe_deref(doc, &descendants[0]).as_dict().expect("should be CID dict");
         let encoding = maybe_get_obj(doc, font, b"Encoding").expect("Encoding required in type0 fonts");
